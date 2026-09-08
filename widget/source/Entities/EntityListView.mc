@@ -7,16 +7,127 @@ using Utils;
 class EntityListController {
   hidden var _mEntities;
   hidden var _mTypes;
-  hidden var _mHassModel;
   hidden var _mIndex;
   hidden var _mRowHeight; // px height of one row in EntityListView's 3-row layout; null in card view
+
+  // In-place input_number/number/select editing on 64 KB widget devices
+  // (:lowmem, see EntityListDelegate.handleExtendedEntityTypes()) - an
+  // alternative to the fullmem InputNumberEditView screen/Menu2 option
+  // picker that reuses this list/card view instead of compiling a second
+  // one. _mEditingEntity is null when not editing; non-null means the
+  // up/down buttons and select/back are temporarily repurposed to adjust
+  // and confirm/cancel a staged value (input_number/number) or a staged
+  // option (select, cycling through _mOptions - see stepStaged() below).
+  //
+  // _mOptions points at the currently-edited select entity's own cached
+  // options (see Entity._mOptions) - a handful of short strings per select
+  // entity, measured cheaper here than the static code cost of a dedicated
+  // fetch-on-demand path (353 bytes smaller on instinct2x).
+  hidden var _mEditingEntity;
+  hidden var _mStagedValue;
+  hidden var _mOptions;
+  hidden var _mOptionIndex;
 
   function initialize(types) {
     _mTypes = types;
     _mIndex = 0;
     _mRowHeight = null;
+    _mEditingEntity = null;
+    _mOptions = null;
 
     refreshEntities();
+  }
+
+  function isEditing() {
+    return _mEditingEntity != null;
+  }
+
+  function getEditingEntity() {
+    return _mEditingEntity;
+  }
+
+  // Ready-to-draw text for whichever mode is active - keeps the
+  // number-vs-select branch in one place instead of duplicated at the
+  // EntityCardView call site.
+  function getStagedDisplayText() {
+    if (_mOptions != null) {
+      return _mOptions[_mOptionIndex];
+    }
+    return Utils.formatNumberForStep(_mStagedValue, _mEditingEntity.getStep());
+  }
+
+  function startEditing(entity) {
+    _mEditingEntity = entity;
+    _mOptions = null;
+    var currentValue = entity.getSensorValue();
+    _mStagedValue = currentValue != null ? currentValue.toFloat() : 0;
+  }
+
+  // `options` comes from the entity's own cache (see Entity.getOptions()),
+  // populated from the last refresh's attributes just like fullmem.
+  function startEditingSelect(entity, options) {
+    _mEditingEntity = entity;
+    _mOptions = options;
+    _mOptionIndex = 0;
+
+    var current = entity.getSensorValue();
+    for (var i = 0; i < options.size(); i++) {
+      if (options[i].equals(current)) {
+        _mOptionIndex = i;
+        break;
+      }
+    }
+  }
+
+  function cancelEditing() {
+    _mEditingEntity = null;
+    _mOptions = null;
+  }
+
+  // Applies one up/down step to whichever mode is active: cycles the
+  // staged option index (wrapping at either end) for select, or adjusts the
+  // staged value (clamped to min/max when known) for input_number/number.
+  function stepStaged(delta) {
+    if (_mOptions != null) {
+      var count = _mOptions.size();
+      _mOptionIndex = (_mOptionIndex + delta + count) % count;
+      return;
+    }
+
+    var step = _mEditingEntity.getStep();
+    if (step == null) {
+      step = 1;
+    }
+
+    var newValue = _mStagedValue + (delta * step);
+    var min = _mEditingEntity.getMin();
+    var max = _mEditingEntity.getMax();
+
+    if (min != null && newValue < min) {
+      newValue = min;
+    }
+    if (max != null && newValue > max) {
+      newValue = max;
+    }
+
+    _mStagedValue = newValue;
+  }
+
+  // Sends the staged value/option to Home Assistant and exits editing.
+  function confirmEditing() {
+    var entity = _mEditingEntity;
+
+    if (_mOptions != null) {
+      var option = _mOptions[_mOptionIndex];
+      _mEditingEntity = null;
+      _mOptions = null;
+      Hass.selectOption(entity, option);
+      return;
+    }
+
+    var value = _mStagedValue;
+    _mEditingEntity = null;
+    Hass.setInputNumberValue(entity, value);
   }
 
   function refreshEntities() {
@@ -103,16 +214,77 @@ class EntityListDelegate extends Ui.BehaviorDelegate {
   // must defer to them to learn whether the tap position matters.
   hidden function toggleCurrentEntity() {
     App.getApp().resetInactivityTimer();
+
+    // A select press while the in-place editor (:lowmem only, see
+    // handleExtendedEntityTypes() below) is active confirms the staged
+    // value and exits editing, instead of toggling/opening anything.
+    if (_mController.isEditing()) {
+      _mController.confirmEditing();
+      Ui.requestUpdate();
+      return true;
+    }
+
     var entity = _mController.getCurrentEntity();
 
     if (entity != null) {
-      _mController.toggleEntity(entity);
+      if (!handleExtendedEntityTypes(entity)) {
+        _mController.toggleEntity(entity);
+      }
     } else {
       App.getApp().menu.showRootMenu();
       App.getApp().viewController.showError("No entity to toggle,\nplease refresh group\nfrom settings");
     }
 
     return true;
+  }
+
+  // Routes TYPE_SELECT/TYPE_INPUT_NUMBER to their dedicated menu/edit view.
+  // Returns true when handled (caller should not also toggleEntity()).
+  //
+  // Split out (rather than inlined in toggleCurrentEntity() above) so the
+  // (:lowmem) variant below never references InputNumberEditView or
+  // showSelectOptionMenu() - this (:fullmem) variant is simply never
+  // called for these types on 64 KB widget devices, since the (:lowmem)
+  // variant intercepts them first with the in-place editor, but the
+  // reference still has to not exist in that build for the linker to
+  // actually drop InputNumberEditView.mc's classes and the two new mdi
+  // bitmaps from it.
+  (:fullmem)
+  hidden function handleExtendedEntityTypes(entity) {
+    if (entity.getType() == Hass.TYPE_SELECT) {
+      App.getApp().menu.showSelectOptionMenu(entity);
+      return true;
+    }
+    if (entity.getType() == Hass.TYPE_INPUT_NUMBER) {
+      var editView = new InputNumberEditView(entity);
+      Ui.pushView(editView, new InputNumberEditDelegate(entity, editView), Ui.SLIDE_IMMEDIATE);
+      return true;
+    }
+    return false;
+  }
+
+  // input_number/number/select get an in-place editor instead of a
+  // dedicated screen/menu on this tier (see EntityListController's editing
+  // state above) - cheaper than compiling in InputNumberEditView and the
+  // Menu2 option picker, so it fits this tier's budget. select's options
+  // come from the entity itself (cached the same way as fullmem, from the
+  // last refresh's attributes - see Hass._applyExtendedAttributes()).
+  (:lowmem)
+  hidden function handleExtendedEntityTypes(entity) {
+    if (entity.getType() == Hass.TYPE_INPUT_NUMBER) {
+      _mController.startEditing(entity);
+      Ui.requestUpdate();
+      return true;
+    }
+    if (entity.getType() == Hass.TYPE_SELECT) {
+      var options = entity.getOptions();
+      if (options != null && options.size() > 0) {
+        _mController.startEditingSelect(entity, options);
+        Ui.requestUpdate();
+      }
+      return true;
+    }
+    return false;
   }
 
   // Deferring to false lets BehaviorDelegate fall back to onKey() (physical
@@ -136,8 +308,19 @@ class EntityListDelegate extends Ui.BehaviorDelegate {
     return true;
   }
 
+  // The physical "up" button (top of the device) fires onPreviousPage() -
+  // while editing, that means "increase" (matching InputNumberEditView's
+  // same up=increment convention), which is the opposite of the step
+  // direction implied by its name.
   function onNextPage() {
     App.getApp().resetInactivityTimer();
+
+    if (_mController.isEditing()) {
+      _mController.stepStaged(-1);
+      Ui.requestUpdate();
+      return true;
+    }
+
     var index = _mController.getIndex();
     var count = _mController.getCount();
 
@@ -159,6 +342,13 @@ class EntityListDelegate extends Ui.BehaviorDelegate {
 
   function onPreviousPage() {
     App.getApp().resetInactivityTimer();
+
+    if (_mController.isEditing()) {
+      _mController.stepStaged(1);
+      Ui.requestUpdate();
+      return true;
+    }
+
     var index = _mController.getIndex();
     var count = _mController.getCount();
 
@@ -176,6 +366,19 @@ class EntityListDelegate extends Ui.BehaviorDelegate {
     Ui.requestUpdate();
 
     return true;
+  }
+
+  // Cancels the in-place editor (:lowmem only) without sending anything.
+  // Falls back to the default BehaviorDelegate back behavior (pop the view)
+  // when not editing.
+  function onBack() {
+    if (_mController.isEditing()) {
+      App.getApp().resetInactivityTimer();
+      _mController.cancelEditing();
+      Ui.requestUpdate();
+      return true;
+    }
+    return false;
   }
 
   // Touch screen: explicit tap handler.
@@ -359,6 +562,10 @@ class EntityListView extends Ui.View {
       if (sensorClass == Hass.SENSOR_WATER) { return WatchUi.loadResource(Rez.Drawables.WaterMeter); }
       if (sensorClass == Hass.SENSOR_GAS) { return WatchUi.loadResource(Rez.Drawables.GasMeter); }
       return WatchUi.loadResource(Rez.Drawables.Unknown);
+    } else if (type == Hass.TYPE_SELECT) {
+      return WatchUi.loadResource(Rez.Drawables.MdiFormatListBulleted);
+    } else if (type == Hass.TYPE_INPUT_NUMBER) {
+      return WatchUi.loadResource(Rez.Drawables.MdiNumeric);
     }
 
     return WatchUi.loadResource(Rez.Drawables.Unknown);
@@ -659,7 +866,6 @@ class EntityListView extends Ui.View {
       dc.drawText(textX, blockY + titleBlockH + lineGap, stateFont, stateStr, Graphics.TEXT_JUSTIFY_LEFT);
     }
   }
-
 
   function drawPageBar(dc) {
     var numEntities = _mController.getCount();

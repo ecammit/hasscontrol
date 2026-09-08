@@ -272,6 +272,11 @@ module Utils {
         "mdi:sprinkler" => Rez.Drawables.MdiWater,
         "mdi:sprinkler-variant" => Rez.Drawables.MdiWater,
         "mdi:pipe" => Rez.Drawables.MdiWater,
+        "mdi:format-list-bulleted" => Rez.Drawables.MdiFormatListBulleted,
+        "mdi:format-list-bulleted-square" => Rez.Drawables.MdiFormatListBulleted,
+        "mdi:format-list-bulleted-type" => Rez.Drawables.MdiFormatListBulleted,
+        "mdi:numeric" => Rez.Drawables.MdiNumeric,
+        "mdi:counter" => Rez.Drawables.MdiNumeric,
       };
     }
     return _mdiMap;
@@ -457,6 +462,48 @@ module Utils {
     System.println("MEM " + label + " used=" + s.usedMemory + " free=" + s.freeMemory + " total=" + s.totalMemory);
   }
 
+  // Same :debug/:release stripping as logMem, for plain trace messages.
+  // One-, two- or three-part callers all go through this: pass null for
+  // unused trailing parts. Concatenation happens inside this function so
+  // it only runs in debug builds; passing pre-concatenated text at the
+  // call site would defeat the stripping.
+  (:debug)
+  function debugLog(a, b, c) {
+    var msg = a;
+    if (b != null) {
+      msg = msg + b;
+    }
+    if (c != null) {
+      msg = msg + c;
+    }
+    System.println(msg);
+  }
+
+  (:release)
+  function debugLog(a, b, c) {
+  }
+
+  // For the "<label>: <url>, <params>" web-request trace lines.
+  (:debug)
+  function debugLogRequest(label, url, params) {
+    System.println(label + ": " + url + ", " + params);
+  }
+
+  (:release)
+  function debugLogRequest(label, url, params) {
+  }
+
+  // For "<label><error>" traces - err.toShortString() must stay inside the
+  // debug-only body, or the call would run in release builds too.
+  (:debug)
+  function debugLogError(label, err) {
+    System.println(label + err.toShortString());
+  }
+
+  (:release)
+  function debugLogError(label, err) {
+  }
+
   (:release)
   function logMem(tag, value) {
   }
@@ -468,5 +515,33 @@ module Utils {
       return deviceSettings.screenShape == System.SCREEN_SHAPE_RECTANGLE;
     }
     return false;
+  }
+
+  // Home Assistant input_number/number steps are almost always whole numbers
+  // or have 1-2 decimal digits (e.g. 1, 0.5, 0.25) - checking against those
+  // avoids showing raw binary-float noise (e.g. "45.00000029802322") without
+  // needing general-purpose decimal-counting.
+  //
+  // input_number/number support is available on every tier (see
+  // Entity.detectExtendedType()).
+  function decimalPlacesForStep(step) {
+    if (step == null) {
+      return 0;
+    }
+
+    var stepFloat = step.toFloat();
+    if (stepFloat == stepFloat.toNumber()) {
+      return 0;
+    }
+    if ((stepFloat * 10).toNumber() / 10.0 == stepFloat) {
+      return 1;
+    }
+    return 2;
+  }
+
+  // Formats a numeric entity value (input_number/number) to the decimal
+  // precision implied by its step, instead of the raw float representation.
+  function formatNumberForStep(value, step) {
+    return value.toFloat().format("%." + decimalPlacesForStep(step) + "f");
   }
 }

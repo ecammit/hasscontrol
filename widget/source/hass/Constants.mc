@@ -28,6 +28,8 @@ module Hass {
         TYPE_BUTTON,
         TYPE_INPUT_BUTTON,
         TYPE_SENSOR,
+        TYPE_SELECT,
+        TYPE_INPUT_NUMBER,
         TYPE_UNKNOWN
     }
 

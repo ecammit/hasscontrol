@@ -85,7 +85,13 @@ class EntityCardView extends Ui.View {
     var fontHeight = vh * 0.3;
     var fontWidth = vw * 0.80;
 
+    // While the in-place editor (:lowmem only, see EntityListController) is
+    // active for this entity, show its staged value/option instead of the
+    // last value fetched from Home Assistant.
     var text = entity.getName();
+    if (_mController.isEditing() && _mController.getEditingEntity() == entity) {
+      text = entity.getRawName() + "\n" + _mController.getStagedDisplayText();
+    }
 
     var fonts = [Graphics.FONT_MEDIUM, Graphics.FONT_TINY, Graphics.FONT_XTINY];
     var font = fonts[0];
@@ -108,6 +114,25 @@ class EntityCardView extends Ui.View {
     } else {
       dc.drawText(cvh, cvw * 1.1, font, text, Graphics.TEXT_JUSTIFY_CENTER);
     }
+  }
+
+  // TYPE_SELECT/TYPE_INPUT_NUMBER entities exist on every tier (see
+  // Entity.detectExtendedType()), but their distinctive icon is
+  // fullmem-only. The (:lowmem) stub returns null so the linker drops the
+  // two mdi bitmaps below from that build - drawIcon()'s null-drawable
+  // fallback then draws Rez.Drawables.Unknown, the same generic icon a
+  // TYPE_SENSOR with SENSOR_OTHER gets.
+  (:fullmem)
+  hidden function fullmemOnlyIcon(type) {
+    if (type == Hass.TYPE_SELECT) {
+      return WatchUi.loadResource(Rez.Drawables.MdiFormatListBulleted);
+    }
+    return WatchUi.loadResource(Rez.Drawables.MdiNumeric);
+  }
+
+  (:lowmem)
+  hidden function fullmemOnlyIcon(type) {
+    return null;
   }
 
   function drawIcon(dc, entity) {
@@ -212,6 +237,8 @@ class EntityCardView extends Ui.View {
       } else if (sensorClass == Hass.SENSOR_OTHER) {
         drawable = WatchUi.loadResource(Rez.Drawables.Unknown);
       }
+    } else if (type == Hass.TYPE_SELECT || type == Hass.TYPE_INPUT_NUMBER) {
+      drawable = fullmemOnlyIcon(type);
     }
     }
 
@@ -325,6 +352,17 @@ class EntityCardView extends Ui.View {
 
     if (_mShowBar) {
       drawPageBar(dc);
+    }
+
+    // In-place editor (:lowmem only, see EntityListController) active for
+    // this entity: a border is the cheapest way to signal "up/down and
+    // select/back mean something different right now" without a second
+    // screen or any new bitmap.
+    if (_mController.isEditing() && _mController.getEditingEntity() == entity) {
+      dc.setColor(Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
+      dc.setPenWidth(4);
+      dc.drawRectangle(2, 2, dc.getWidth() - 4, dc.getHeight() - 4);
+      dc.drawText(dc.getWidth() / 2, dc.getHeight() - 24, Graphics.FONT_XTINY, "EDITING", Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     return;

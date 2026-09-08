@@ -53,13 +53,15 @@ HassControl supports the following entity types:
 - `TYPE_BUTTON`: Button entities that can be pressed
 - `TYPE_INPUT_BUTTON`: Input button entities
 - `TYPE_SENSOR`: Sensors with values (temperature, humidity, etc.)
+- `TYPE_SELECT`: Select entities (pick one of a list of options). Fullmem devices use a Menu2 picker; 64 KB widget devices (`:lowmem`, see `monkey.jungle`) use an in-place list editor instead (see `EntityListController`'s editing state in `EntityListView.mc`).
+- `TYPE_INPUT_NUMBER`: `input_number`/`number` entities (numeric value with min/max/step). Fullmem devices use a dedicated edit view (`InputNumberEditView.mc`: select confirms, back cancels); lowmem devices use the same in-place list editor as `TYPE_SELECT`.
 
 ## Entity States
 Entities can be in various states:
 - Basic states: `STATE_ON`, `STATE_OFF`, `STATE_UNKNOWN`
 - Lock states: `STATE_LOCKED`, `STATE_UNLOCKED`, `STATE_LOCKING`, `STATE_UNLOCKING`
 - Cover states: `STATE_OPEN`, `STATE_CLOSED`, `STATE_OPENING`, `STATE_CLOSING`
-- Sensor state: `STATE_SENSOR` (with associated value)
+- Sensor state: `STATE_SENSOR` (with associated value) — also used for `TYPE_SELECT`'s current option and `TYPE_INPUT_NUMBER`'s current numeric value
 
 ## Adding New Entity Types
 When adding a new entity type:

@@ -1,5 +1,6 @@
 
 using Toybox.System;
+using Utils;
 
 module Hass {
   class Entity {
@@ -12,9 +13,39 @@ module Hass {
     //
     // `ext` is deliberately not persisted: external (settings-defined)
     // entities are never written, so it is always false on read.
+    //
+    // select's `options` (a String Array) and input_number/number's
+    // min/max/step are dropped from the persisted form on 64 KB widget
+    // devices (:lowmem, see monkey.jungle) - not because persisting them was
+    // measured to cause a problem, but to keep this array's footprint at
+    // its pre-existing size on a tier that's already tight on static
+    // footprint (see Utils.debugLog() and friends). Those devices always
+    // start select/input_number from a live refresh rather than the
+    // offline cache; they still work the same otherwise.
+    (:fullmem)
+    static const STORED_FIELDS = 10;
+
+    (:lowmem)
     static const STORED_FIELDS = 6;
 
     // Appends this entity at `offset` and returns the next free offset.
+    (:fullmem)
+    function writeToStorage(target, offset) {
+      target[offset]     = _mId;
+      target[offset + 1] = _mName;
+      target[offset + 2] = Entity.stateToString(_mState);
+      target[offset + 3] = _mSensorClass;
+      target[offset + 4] = _mIcon;
+      target[offset + 5] = _mDeviceClass;
+      target[offset + 6] = _mOptions;
+      target[offset + 7] = _mMin;
+      target[offset + 8] = _mMax;
+      target[offset + 9] = _mStep;
+
+      return offset + Entity.STORED_FIELDS;
+    }
+
+    (:lowmem)
     function writeToStorage(target, offset) {
       target[offset]     = _mId;
       target[offset + 1] = _mName;
@@ -26,6 +57,31 @@ module Hass {
       return offset + Entity.STORED_FIELDS;
     }
 
+    (:fullmem)
+    static function createFromStorage(stored, offset) {
+      var id = stored[offset];
+
+      if (id == null) {
+        return null;
+      }
+
+      var name = stored[offset + 1];
+
+      return new Entity({
+        :id => id,
+        :name => name != null ? name : id,
+        :state => stored[offset + 2],
+        :sensorClass => stored[offset + 3],
+        :icon => stored[offset + 4],
+        :deviceClass => stored[offset + 5],
+        :options => stored[offset + 6],
+        :min => stored[offset + 7],
+        :max => stored[offset + 8],
+        :step => stored[offset + 9]
+      });
+    }
+
+    (:lowmem)
     static function createFromStorage(stored, offset) {
       var id = stored[offset];
 
@@ -50,11 +106,11 @@ module Hass {
     static function createFromDict(dict) {
       // Null safety: check for null or invalid dictionary
       if (dict == null) {
-        System.println("Entity.createFromDict: dict is null, skipping");
+        Utils.debugLog("Entity.createFromDict: dict is null, skipping", null, null);
         return null;
       }
       if (dict["id"] == null) {
-        System.println("Entity.createFromDict: dict[id] is null, skipping");
+        Utils.debugLog("Entity.createFromDict: dict[id] is null, skipping", null, null);
         return null;
       }
       return new Entity({
@@ -155,6 +211,16 @@ module Hass {
     hidden var _mIcon; // Home Assistant `icon` attribute (e.g. "mdi:movie-open")
     hidden var _mDeviceClass; // Home Assistant `device_class` attribute (e.g. "battery")
 
+    // select's `options` (a short string Array - a handful of a few chars
+    // each, in practice) plus input_number/number's min/max/step/service
+    // domain - kept on every tier so the lowmem in-place editor can use
+    // them without a separate network round-trip per edit.
+    hidden var _mOptions;
+    hidden var _mMin;
+    hidden var _mMax;
+    hidden var _mStep;
+    hidden var _mServiceDomain;
+
     function initialize(entity) {
       _mId = entity[:id];
       _mName = entity[:name];
@@ -163,10 +229,11 @@ module Hass {
       _mSensorClass = entity[:sensorClass];
       _mIcon = entity[:icon];
       _mDeviceClass = entity[:deviceClass];
+      _initExtendedFields(entity);
 
       // Null safety: prevent crash if _mId is null
       if (_mId == null) {
-        System.println("Entity.initialize: entity ID is null");
+        Utils.debugLog("Entity.initialize: entity ID is null", null, null);
         _mType = TYPE_UNKNOWN;
         return;
       }
@@ -200,8 +267,48 @@ module Hass {
       } else if (_mId.find("sensor.") != null) {
         _mType = TYPE_SENSOR;
       } else {
-        _mType = TYPE_UNKNOWN;
+        _mType = detectExtendedType(_mId);
       }
+    }
+
+    // select/input_number/number are supported on every tier, though
+    // fullmem and 64 KB widget devices (:lowmem, see monkey.jungle) present
+    // them differently: fullmem uses the Menu2 option picker and the
+    // InputNumberEditView screen; lowmem uses an in-place list editor (see
+    // EntityListController's editing state and
+    // EntityListDelegate.handleExtendedEntityTypes()) that's cheap enough
+    // to fit that tier's budget instead.
+    hidden function detectExtendedType(id) {
+      // Checked before the plain "select." below, same reasoning as
+      // input_number/number: "select." is a substring of "input_select.",
+      // so checking the more specific input_ prefix first is what keeps
+      // input_select.* entities from being misrouted to the "select"
+      // domain's service (which HA accepts with a 200 but silently ignores
+      // for an entity it doesn't own).
+      if (id.find("input_select.") != null) {
+        _mServiceDomain = "input_select";
+        return TYPE_SELECT;
+      }
+      if (id.find("select.") != null) {
+        _mServiceDomain = "select";
+        return TYPE_SELECT;
+      }
+      if (id.find("input_number.") != null) {
+        _mServiceDomain = "input_number";
+        return TYPE_INPUT_NUMBER;
+      }
+      if (id.find("number.") != null) {
+        _mServiceDomain = "number";
+        return TYPE_INPUT_NUMBER;
+      }
+      return TYPE_UNKNOWN;
+    }
+
+    hidden function _initExtendedFields(entity) {
+      _mOptions = entity[:options];
+      _mMin = entity[:min];
+      _mMax = entity[:max];
+      _mStep = entity[:step];
     }
 
     function getId() {
@@ -221,13 +328,17 @@ module Hass {
       _mName = newName;
     }
 
+    function getRawName() {
+      return _mName;
+    }
+
     function getType() {
       return _mType;
     }
 
     function setState(newState) {
       if (newState instanceof String) {
-        if (_mType == TYPE_SENSOR ) {
+        if (_mType == TYPE_SENSOR || _mType == TYPE_SELECT || _mType == TYPE_INPUT_NUMBER) {
           _mState = STATE_SENSOR;
           _mSensorValue = newState;
         } else {
@@ -262,6 +373,10 @@ module Hass {
     }
 
 
+    function getSensorValue() {
+      return _mSensorValue;
+    }
+
     function getSensorClass() {
       return _mSensorClass;
     }
@@ -288,6 +403,42 @@ module Hass {
       _mDeviceClass = newDeviceClass;
     }
 
+    function getOptions() {
+      return _mOptions;
+    }
+
+    function setOptions(newOptions) {
+      _mOptions = newOptions;
+    }
+
+    function getMin() {
+      return _mMin;
+    }
+
+    function setMin(newMin) {
+      _mMin = newMin;
+    }
+
+    function getMax() {
+      return _mMax;
+    }
+
+    function setMax(newMax) {
+      _mMax = newMax;
+    }
+
+    function getStep() {
+      return _mStep;
+    }
+
+    function setStep(newStep) {
+      _mStep = newStep;
+    }
+
+    function getServiceDomain() {
+      return _mServiceDomain;
+    }
+
     function isExternal() {
       return _mExt;
     }
@@ -299,6 +450,5 @@ module Hass {
     function setExternal(isExternal) {
       _mExt = isExternal;
     }
-
   }
 }
