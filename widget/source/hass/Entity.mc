@@ -286,29 +286,22 @@ module Hass {
     // is split into two variants purely to keep that assignment out of
     // the :lowmem build.
     //
-    // "select."/"number." are checked after their more specific
-    // "input_select."/"input_number." counterparts because each is a
-    // substring of the other (e.g. "select." matches inside
-    // "input_select."); checking the specific prefix first is what keeps
-    // an input_select.*/input_number.* entity from being misrouted to the
-    // "select"/"number" domain's service (which HA accepts with a 200 but
-    // silently ignores for an entity it doesn't own).
+    // "select."/"number." alone are enough to catch both a domain and its
+    // input_ variant, since each is a substring of the other (e.g.
+    // "select." matches inside "input_select."), so there's no need to
+    // check the two separately. The actual domain for the service call
+    // (needed because HA accepts a select_option/set_value call for the
+    // wrong domain with a 200 but silently ignores it) just depends on
+    // whether the id itself starts with "input_" - a fixed-literal check
+    // rather than slicing a new String out of id.
     (:fullmem)
     hidden function detectExtendedType(id) {
-      if (id.find("input_select.") != null) {
-        _mServiceDomain = "input_select";
-        return TYPE_SELECT;
-      }
       if (id.find("select.") != null) {
-        _mServiceDomain = "select";
+        _mServiceDomain = id.find("input_") == 0 ? "input_select" : "select";
         return TYPE_SELECT;
-      }
-      if (id.find("input_number.") != null) {
-        _mServiceDomain = "input_number";
-        return TYPE_INPUT_NUMBER;
       }
       if (id.find("number.") != null) {
-        _mServiceDomain = "number";
+        _mServiceDomain = id.find("input_") == 0 ? "input_number" : "number";
         return TYPE_INPUT_NUMBER;
       }
       return TYPE_UNKNOWN;
@@ -316,10 +309,10 @@ module Hass {
 
     (:lowmem)
     hidden function detectExtendedType(id) {
-      if (id.find("input_select.") != null || id.find("select.") != null) {
+      if (id.find("select.") != null) {
         return TYPE_SELECT;
       }
-      if (id.find("input_number.") != null || id.find("number.") != null) {
+      if (id.find("number.") != null) {
         return TYPE_INPUT_NUMBER;
       }
       return TYPE_UNKNOWN;
