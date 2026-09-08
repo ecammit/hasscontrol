@@ -76,6 +76,11 @@ class EntityCardView extends Ui.View {
   }
 
   function drawEntityText(dc, entity) {
+    if (entity.getState() == Hass.STATE_SENSOR && useFixedTwoLineSensorLayout()) {
+      drawSensorEntityText(dc, entity);
+      return;
+    }
+
     var vh = dc.getHeight();
     var vw = dc.getWidth();
 
@@ -108,6 +113,59 @@ class EntityCardView extends Ui.View {
     } else {
       dc.drawText(cvh, cvw * 1.1, font, text, Graphics.TEXT_JUSTIFY_CENTER);
     }
+  }
+
+  // Only affects the lowmem tier (see useFixedTwoLineSensorLayout()) - the
+  // general loop above lets a long name and the "\n"-joined sensor value
+  // wrap freely as one block of text, so a long enough name can consume
+  // both available lines by itself and push the value off screen
+  // entirely. Fitting the name and value to one truncated line each,
+  // independently, guarantees the value is always shown.
+  hidden function drawSensorEntityText(dc, entity) {
+    var vh = dc.getHeight();
+    var vw = dc.getWidth();
+    var fontWidth = vw * 0.80;
+    var gap = 4;
+
+    var font = Graphics.FONT_TINY;
+    var fontH = dc.getFontHeight(font);
+
+    var name = Graphics.fitTextToArea(entity.getRawName(), font, fontWidth, fontH, true);
+    var value = Graphics.fitTextToArea(entity.getSensorValue(), font, fontWidth, fontH, true);
+
+    // Each line is explicitly vertically centered on its own Y (rather
+    // than relying on dc.drawText()'s default anchor for an un-justified
+    // Y, which the general loop above gets away with for a single line)
+    // so the two lines land symmetrically above/below the same center
+    // point the general loop uses, regardless of that default's exact
+    // behavior.
+    var halfPitch = (fontH + gap) / 2;
+    var justify = Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER;
+
+    // Nudged down slightly from the general loop's center point - the
+    // icon above (see drawIcon()) otherwise overlaps the top line.
+    var verticalNudge = vh * 0.04;
+
+    if (Utils.isRectangularScreen()) {
+      var centerY = (vh / 2) + verticalNudge;
+      dc.drawText(vw / 2, centerY - halfPitch, font, name, justify);
+      dc.drawText(vw / 2, centerY + halfPitch, font, value, justify);
+    } else {
+      // Matches the round-screen center point the general loop above uses.
+      var centerY = ((vw / 2) * 1.1) + verticalNudge;
+      dc.drawText(vh / 2, centerY - halfPitch, font, name, justify);
+      dc.drawText(vh / 2, centerY + halfPitch, font, value, justify);
+    }
+  }
+
+  (:fullmem)
+  hidden function useFixedTwoLineSensorLayout() {
+    return false;
+  }
+
+  (:lowmem)
+  hidden function useFixedTwoLineSensorLayout() {
+    return true;
   }
 
   // TYPE_SELECT (select and input_select share this type)/TYPE_INPUT_NUMBER
