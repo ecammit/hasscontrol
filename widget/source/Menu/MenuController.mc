@@ -206,14 +206,24 @@ class MenuController {
 
         if (options != null) {
             for (var i = 0; i < options.size(); i++) {
-                var subtitle = currentValue != null && options[i].equals(currentValue) ? "selected" : "";
+                // A checkmark glyph in the label itself, rather than a
+                // "selected" subLabel, needs no localization and leaves
+                // room for a longer option label on screen.
+                var isSelected = currentValue != null && options[i].equals(currentValue);
+                var label = isSelected ? "» " + options[i] : options[i];
 
                 menu.addItem(new Ui.MenuItem(
-                    options[i],
-                    subtitle,
+                    label,
+                    null,
                     options[i],
                     {}
                 ));
+
+                // Land on the entity's current option instead of always
+                // defaulting to the top of the list.
+                if (isSelected) {
+                    menu.setFocus(i);
+                }
             }
         }
 
