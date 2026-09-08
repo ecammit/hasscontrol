@@ -12,6 +12,10 @@ class MenuDelegate extends Ui.Menu2InputDelegate {
         App.getApp().resetInactivityTimer();
         var itemId = item.getId();
 
+        if (itemId instanceof String && handleSelectOptionItem(itemId)) {
+            return true;
+        }
+
         if (itemId == MenuController.MENU_SWITCH_TO_ENTITIES) {
             Ui.popView(Ui.SLIDE_IMMEDIATE);
 
@@ -107,6 +111,32 @@ class MenuDelegate extends Ui.Menu2InputDelegate {
             return true;
         }
 
+        return false;
+    }
+
+    // Dynamic select-option items: id is the chosen option string, the
+    // target entity is tracked by MenuController.showSelectOptionMenu().
+    // Split out (rather than inlined in onSelect() above) because this
+    // Menu2 option picker is fullmem-only - select/input_select is shown
+    // read-only on 64 KB widget devices instead (see Entity.mc), so the
+    // (:lowmem) variant below never references
+    // MenuController.getSelectMenuEntityId() or Hass.selectOption(), both
+    // :fullmem-only.
+    (:fullmem)
+    hidden function handleSelectOptionItem(itemId) {
+        var entityId = App.getApp().menu.getSelectMenuEntityId();
+
+        if (entityId == null) {
+            return false;
+        }
+
+        Ui.popView(Ui.SLIDE_IMMEDIATE);
+        Hass.selectOption(Hass.getEntity(entityId), itemId);
+        return true;
+    }
+
+    (:lowmem)
+    hidden function handleSelectOptionItem(itemId) {
         return false;
     }
 }

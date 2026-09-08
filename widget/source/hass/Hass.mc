@@ -7,7 +7,14 @@ using Toybox.Lang;
 using Utils;
 
 module Hass {
-  const STORAGE_KEY = "Hass/entities/v2";
+  // v3: :fullmem's STORED_FIELDS grew from the old fixed 6-field stride to
+  // 10, to persist select's options and input_number/number's min/max/step
+  // (see Entity.mc). Bumped so a :fullmem device never misreads an old
+  // v2 (6-field) array with the new 10-field stride - offset math would
+  // silently pull the next entity's id/name into this one's tail fields.
+  // :lowmem's stride never changed (still 6), so it isn't actually at risk
+  // here, but shares the bump anyway rather than tracking two key versions.
+  const STORAGE_KEY = "Hass/entities/v3";
   const STORAGE_KEY_LEGACY = "Hass/entities";
 
   var client = null;
@@ -90,7 +97,7 @@ module Hass {
     // write costs only the offline cache for this session - far better than an
     // Out Of Memory crash at the end of an otherwise successful refresh.
     if (Utils.freeMemory() < MIN_FREE_MEMORY) {
-      System.println("storeEntities: skipped, low memory");
+      Utils.debugLog("storeEntities: skipped, low memory", null, null);
       return;
     }
 
@@ -189,7 +196,7 @@ module Hass {
 
     loadScenesFromSettings();
 
-    System.println("Loaded entities: " + _entities.size() + " total");
+    Utils.debugLog("Loaded entities: ", _entities.size(), " total");
   }
 
   // One-time read of the pre-2.0.4 format (one Dictionary per entity). The
@@ -225,7 +232,7 @@ module Hass {
 
     // Validate data structure before proceeding
     if (data == null || data[:body] == null || data[:body]["entity_id"] == null) {
-      System.println("Invalid entity data received");
+      Utils.debugLog("Invalid entity data received", null, null);
       if (data != null && data[:context] != null && data[:context][:callback] != null) {
         data[:context][:callback].invoke(new Error(Error.ERROR_UNKNOWN), null);
       }
@@ -236,7 +243,7 @@ module Hass {
 
     // If entity doesn't exist, skip processing but still invoke callback to continue chain
     if (entity == null) {
-      System.println("Entity not found: " + data[:body]["entity_id"]);
+      Utils.debugLog("Entity not found: ", data[:body]["entity_id"], null);
       // Always try to invoke callback to prevent breaking the refresh chain
       if (data[:context] != null && data[:context][:callback] != null) {
         data[:context][:callback].invoke(null, null);
@@ -264,7 +271,8 @@ module Hass {
       // when no custom `icon` is set.
       deviceClass = data[:body]["attributes"]["device_class"];
 
-      if (data[:body]["attributes"]["unit_of_measurement"] != null) {
+      if (data[:body]["attributes"]["unit_of_measurement"] != null && entity.getType() != Entity.TYPE_INPUT_NUMBER) {
+        // input_number/number keep a plain numeric value so it can be parsed for editing
         state = data[:body]["state"] + data[:body]["attributes"]["unit_of_measurement"];
       } else {
         state = data[:body]["state"];
@@ -292,6 +300,8 @@ module Hass {
       } else {
         sensorClass = SENSOR_OTHER;
       }
+
+      _applyExtendedAttributes(entity, data[:body]["attributes"]);
     } else {
       state = data[:body]["state"];
       sensorClass = SENSOR_OTHER;
@@ -302,7 +312,7 @@ module Hass {
     }
 
     if (state != null) {
-      entity.setState(state);
+      entity.setState(_formatEntityState(entity, state));
     } else {
       entity.setState(Entity.STATE_UNKNOWN);
     }
@@ -332,6 +342,50 @@ module Hass {
   // and out of the dictionary storeEntities() serialises.
   (:lowmem)
   function _applyIconAttributes(entity, icon, deviceClass) {
+  }
+
+  // input_number/number's raw HA state string (e.g. "85.0") doesn't
+  // necessarily match the precision implied by its step - reformat it the
+  // same way the optimistic update in onSetInputNumberValueCompleted()
+  // already does, or a refresh right after confirming a value flips the
+  // display from the just-confirmed "85" back to HA's own "85.0".
+  // :fullmem-only since it needs entity.getStep()/Utils.formatNumberForStep,
+  // both editing-only; 64 KB widget devices just display HA's raw state.
+  (:fullmem)
+  function _formatEntityState(entity, state) {
+    if (entity.getType() == Entity.TYPE_INPUT_NUMBER) {
+      return Utils.formatNumberForStep(state, entity.getStep());
+    }
+    return state;
+  }
+
+  (:lowmem)
+  function _formatEntityState(entity, state) {
+    return state;
+  }
+
+  // select/input_select's options and input_number/number's min/max/step -
+  // editing-only data (see Entity._mOptions and friends), so this is
+  // :fullmem-only; on 64 KB widget devices (:lowmem, see monkey.jungle)
+  // these entities are read-only and never read these attributes.
+  (:fullmem)
+  function _applyExtendedAttributes(entity, attributes) {
+    if (attributes["options"] != null) {
+      entity.setOptions(attributes["options"]);
+    }
+    if (attributes["min"] != null) {
+      entity.setMin(attributes["min"]);
+    }
+    if (attributes["max"] != null) {
+      entity.setMax(attributes["max"]);
+    }
+    if (attributes["step"] != null) {
+      entity.setStep(attributes["step"]);
+    }
+  }
+
+  (:lowmem)
+  function _applyExtendedAttributes(entity, attributes) {
   }
 
   function refreshEntity(entity, callback) {
@@ -370,7 +424,7 @@ module Hass {
       // Not enough heap left to parse another response. Abandon the rest of
       // the chain; those entities keep their last known state instead of the
       // whole app dying mid-refresh.
-      System.println("refresh: stopped early, low memory, " + _entitiesToRefresh.size() + " left");
+      Utils.debugLog("refresh: stopped early, low memory, ", _entitiesToRefresh.size(), " left");
       _entitiesToRefresh = new [0];
     }
 
@@ -469,7 +523,7 @@ module Hass {
 
     // Validate data structure
     if (data == null || data[:body] == null || data[:body]["attributes"] == null || data[:body]["attributes"]["entity_id"] == null) {
-      System.println("Invalid entities data received");
+      Utils.debugLog("Invalid entities data received", null, null);
       App.getApp().viewController.removeLoader();
       App.getApp().viewController.showError("Invalid\ngroup\nresponse");
       return;
@@ -541,7 +595,7 @@ module Hass {
 
     if (dropped > 0) {
       // Tell the user rather than silently showing a short list.
-      System.println("import: dropped " + dropped + " entities, low memory");
+      Utils.debugLog("import: dropped ", dropped, " entities, low memory");
       App.getApp().viewController.showError(
         "Low memory:\nonly " + _entities.size() + " of " + (_entities.size() + dropped) + "\nentities loaded"
       );
@@ -564,7 +618,7 @@ module Hass {
 
   function _onBatteryUpdate(err, data) {
       if (err != null) {
-        System.println("Battery update error: " + err.toShortString());
+        Utils.debugLogError("Battery update error: ", err);
       }
   }
 
@@ -581,7 +635,7 @@ module Hass {
 
     // Validate data structure
     if (data == null || data[:context] == null || data[:context][:entityId] == null) {
-      System.println("Invalid toggle entity response");
+      Utils.debugLog("Invalid toggle entity response", null, null);
       App.getApp().viewController.removeLoader();
       return;
     }
@@ -618,6 +672,86 @@ module Hass {
     System.exit();
   }
 
+  // select/input_select editing (Menu2 option picker) is :fullmem-only -
+  // 64 KB widget devices (:lowmem, see monkey.jungle) show these entities
+  // read-only, so these four functions are only reachable through it.
+  (:fullmem)
+  function onSelectOptionCompleted(error, data) {
+    if (error != null) {
+      App.getApp().viewController.removeLoaderImmediate();
+      App.getApp().viewController.showError(error);
+      return;
+    }
+
+    if (data == null || data[:context] == null || data[:context][:entityId] == null) {
+      Utils.debugLog("Invalid select option response", null, null);
+      App.getApp().viewController.removeLoader();
+      return;
+    }
+
+    var entity = getEntity(data[:context][:entityId]);
+    if (entity != null && data[:context][:extraParams] != null && data[:context][:extraParams]["option"] != null) {
+      entity.setState(data[:context][:extraParams]["option"]);
+      storeEntities();
+      Ui.requestUpdate();
+    }
+
+    App.getApp().viewController.removeLoader();
+  }
+
+  (:fullmem)
+  function selectOption(entity, option) {
+    App.getApp().viewController.showLoader("Selecting");
+
+    client.callService(
+      entity.getServiceDomain(),
+      "select_option",
+      entity.getId(),
+      { "option" => option },
+      Utils.method(Hass, :onSelectOptionCompleted)
+    );
+  }
+
+  // input_number/number editing (InputNumberEditView) is :fullmem-only -
+  // same reasoning as select above.
+  (:fullmem)
+  function onSetInputNumberValueCompleted(error, data) {
+    if (error != null) {
+      App.getApp().viewController.removeLoaderImmediate();
+      App.getApp().viewController.showError(error);
+      return;
+    }
+
+    if (data == null || data[:context] == null || data[:context][:entityId] == null) {
+      Utils.debugLog("Invalid set input number value response", null, null);
+      App.getApp().viewController.removeLoader();
+      return;
+    }
+
+    var entity = getEntity(data[:context][:entityId]);
+    if (entity != null && data[:context][:extraParams] != null && data[:context][:extraParams]["value"] != null) {
+      var value = data[:context][:extraParams]["value"];
+      entity.setState(Utils.formatNumberForStep(value, entity.getStep()));
+      storeEntities();
+      Ui.requestUpdate();
+    }
+
+    App.getApp().viewController.removeLoader();
+  }
+
+  (:fullmem)
+  function setInputNumberValue(entity, value) {
+    App.getApp().viewController.showLoader("Setting");
+
+    client.callService(
+      entity.getServiceDomain(),
+      "set_value",
+      entity.getId(),
+      { "value" => value },
+      Utils.method(Hass, :onSetInputNumberValueCompleted)
+    );
+  }
+
   function toggleEntityState(entity) {
     var entityId = entity.getId();
     var currentState = entity.getState();
@@ -631,6 +765,10 @@ module Hass {
     }
     if (entity.getType() == Entity.TYPE_SENSOR) {
       // binary_sensor cannot be set, only read
+      return;
+    }
+    if (entity.getType() == Entity.TYPE_SELECT || entity.getType() == Entity.TYPE_INPUT_NUMBER) {
+      // handled via a dedicated menu / edit view, not a simple toggle
       return;
     }
 
@@ -700,56 +838,4 @@ module Hass {
 
     client.setEntityState(entityId, entityType, action, Utils.method(Hass, :onToggleEntityStateCompleted));
   }
-}
-
-class HassController {
-
-
-
-  // function _refreshPendingEntities() {
-  //   var entity = null;
-
-  //   for (var i = 0; i < _entities.size(); i++) {
-  //     if (_entities[i].getState() == null) {
-  //       entity = _entities[i];
-  //       break;
-  //     }
-  //   }
-
-  //   if (entity != null) {
-  //     client.getEntity(entity.getId(), method(:onReceiveRefreshedEntity));
-  //   } else {
-  //     System.println(_entities);
-  //     storeEntities();
-  //     App.getApp().viewController.removeLoader();
-  //   }
-  // }
-
-  // function onReceiveEntities(err, data) {
-  //   if (err == null) {
-  //     var entities = data[:body]["attributes"]["entity_id"];
-
-  //     _entities = new [0];
-
-  //     for (var i = 0; i < entities.size(); i++) {
-  //       _entities.add(new Entity({
-  //         :id => entities[i],
-  //         :name => "",
-  //         :state => null
-  //       }));
-  //     }
-
-  //     _refreshPendingEntities();
-  //   } else {
-  //     App.getApp().viewController.showError(err);
-  //   }
-  // }
-
-  // function refreshAllEntityStates() {
-  //     for (var i = 0; i < _entities.size(); i++) {
-  //       _entities[i].setState(null);
-  //     }
-
-  //     _refreshPendingEntities();
-  // }
 }

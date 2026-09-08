@@ -4,6 +4,7 @@ using Toybox.Timer;
 using Toybox.Time;
 
 using Hass;
+using Utils;
 
 class ViewController {
   hidden var _currentView;
@@ -138,7 +139,9 @@ class ViewController {
         Hass.TYPE_INPUT_BOOLEAN,
         Hass.TYPE_BUTTON,
         Hass.TYPE_INPUT_BUTTON,
-        Hass.TYPE_SENSOR
+        Hass.TYPE_SENSOR,
+        Hass.TYPE_SELECT,
+        Hass.TYPE_INPUT_NUMBER
       ]
     );
   }
@@ -160,7 +163,9 @@ class ViewController {
         Hass.TYPE_INPUT_BOOLEAN,
         Hass.TYPE_BUTTON,
         Hass.TYPE_INPUT_BUTTON,
-        Hass.TYPE_SENSOR
+        Hass.TYPE_SENSOR,
+        Hass.TYPE_SELECT,
+        Hass.TYPE_INPUT_NUMBER
       ]
     );
   }
@@ -226,7 +231,7 @@ class ViewController {
   }
 
   function showLoginView(show) {
-    System.println("Show login? " + show);
+    Utils.debugLog("Show login? ", show, null);
     if (!isLoginActive() && show == true) {
       Ui.pushView(loginView(), _loginDelegate, Ui.SLIDE_IMMEDIATE);
 
@@ -314,7 +319,7 @@ class ViewController {
 
     Ui.pushView(_errorView, _errorDelegate, Ui.SLIDE_IMMEDIATE);
 
-    System.println(error);
+    Utils.debugLog(error, null, null);
     Ui.requestUpdate();
   }
 

@@ -7,7 +7,6 @@ using Utils;
 class EntityListController {
   hidden var _mEntities;
   hidden var _mTypes;
-  hidden var _mHassModel;
   hidden var _mIndex;
   hidden var _mRowHeight; // px height of one row in EntityListView's 3-row layout; null in card view
 
@@ -106,13 +105,44 @@ class EntityListDelegate extends Ui.BehaviorDelegate {
     var entity = _mController.getCurrentEntity();
 
     if (entity != null) {
-      _mController.toggleEntity(entity);
+      if (!handleExtendedEntityTypes(entity)) {
+        _mController.toggleEntity(entity);
+      }
     } else {
       App.getApp().menu.showRootMenu();
       App.getApp().viewController.showError("No entity to toggle,\nplease refresh group\nfrom settings");
     }
 
     return true;
+  }
+
+  // Routes TYPE_SELECT/TYPE_INPUT_NUMBER to their dedicated menu/edit view.
+  // Returns true when handled (caller should not also toggleEntity()).
+  //
+  // Split out (rather than inlined in toggleCurrentEntity() above) so the
+  // (:lowmem) variant below never references InputNumberEditView -
+  // select/input_select/input_number/number are shown read-only on 64 KB
+  // widget devices (:lowmem, see monkey.jungle and Entity.mc), so this is
+  // unreachable there, but the reference still has to not exist for the
+  // linker to actually drop InputNumberEditView.mc's classes and the two
+  // new mdi bitmaps from that build.
+  (:fullmem)
+  hidden function handleExtendedEntityTypes(entity) {
+    if (entity.getType() == Hass.TYPE_SELECT) {
+      App.getApp().menu.showSelectOptionMenu(entity);
+      return true;
+    }
+    if (entity.getType() == Hass.TYPE_INPUT_NUMBER) {
+      var editView = new InputNumberEditView(entity);
+      Ui.pushView(editView, new InputNumberEditDelegate(entity, editView), Ui.SLIDE_IMMEDIATE);
+      return true;
+    }
+    return false;
+  }
+
+  (:lowmem)
+  hidden function handleExtendedEntityTypes(entity) {
+    return false;
   }
 
   // Deferring to false lets BehaviorDelegate fall back to onKey() (physical
@@ -359,6 +389,10 @@ class EntityListView extends Ui.View {
       if (sensorClass == Hass.SENSOR_WATER) { return WatchUi.loadResource(Rez.Drawables.WaterMeter); }
       if (sensorClass == Hass.SENSOR_GAS) { return WatchUi.loadResource(Rez.Drawables.GasMeter); }
       return WatchUi.loadResource(Rez.Drawables.Unknown);
+    } else if (type == Hass.TYPE_SELECT) {
+      return WatchUi.loadResource(Rez.Drawables.MdiFormatListBulleted);
+    } else if (type == Hass.TYPE_INPUT_NUMBER) {
+      return WatchUi.loadResource(Rez.Drawables.MdiNumeric);
     }
 
     return WatchUi.loadResource(Rez.Drawables.Unknown);
@@ -659,7 +693,6 @@ class EntityListView extends Ui.View {
       dc.drawText(textX, blockY + titleBlockH + lineGap, stateFont, stateStr, Graphics.TEXT_JUSTIFY_LEFT);
     }
   }
-
 
   function drawPageBar(dc) {
     var numEntities = _mController.getCount();

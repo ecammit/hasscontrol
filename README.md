@@ -64,6 +64,8 @@ Currently only following Home Assistant entities are supported:
  scene*        | Execution
  script*       | Execution
  sensor        | Display values for the following sensor types: temperature, humidity, CO2, PM10, PM25, energy, gas and water (others will be displayed but won't have a proper icon).
+ select / input_select | Pick one of the entity's configured options. See [Navigation & Controls](#navigation--controls) for how this works. Read-only on [low-memory devices](#low-memory-devices).
+ input_number / number | Set a numeric value, honoring the entity's `min`/`max`/`step`. See [Navigation & Controls](#navigation--controls) for how this works. Read-only on [low-memory devices](#low-memory-devices).
 
 
 \* marked are not entities in the true sense of the word, but why have two tables
@@ -103,8 +105,9 @@ code, all entity data, and every network response. As HassControl grew, the full
 set stopped fitting, and the widget ran out of memory on these devices.
 
 To keep them working, HassControl is built with a reduced feature set for the watches
-listed below. Everything else — scenes, all supported entity types, group sync, colored
-icons, battery reporting, header authentication — works exactly as documented.
+listed below. Everything else — scenes, group sync, colored icons, battery reporting,
+header authentication — works exactly as documented, though `select`/`input_select` and
+`input_number`/`number` are read-only there (see below) rather than editable.
 
 | Affected watches |
 |------------------|
@@ -113,10 +116,16 @@ icons, battery reporting, header authentication — works exactly as documented.
 **What is different on these watches:**
 
 - **[Custom icons](#custom-icons) are not available.** Entities always use the icon for
-  their type and state. The `icon:` and `device_class` attributes are ignored.
+  their type and state. The `icon:` and `device_class` attributes are ignored. `select`/
+  `input_select` and `input_number`/`number` also lose their own distinctive icon on these
+  watches, falling back to the same generic icon an unrecognized sensor gets.
 - **Only the classic card view is available.** The 3-row list view is not built for these
   watches, so the `List View` entry is absent from the watch menu and the
   `Use list view style` setting in the ConnectIQ app has no effect. See [Display](#display).
+- **`select`/`input_select` and `input_number`/`number` are read-only.** These watches
+  display the entity's current option/value, the same way a plain sensor is displayed, but
+  there's no menu or edit screen to change it - do that from Home Assistant or another
+  device instead. See [Navigation & Controls](#navigation--controls).
 
 **Safeguards.** Even with the reduced feature set, a large Home Assistant group can exceed
 what these watches can hold. Rather than crashing, HassControl now stops and tells you:
@@ -288,11 +297,15 @@ The widget is designed to be as simple as possible, but there are a few things t
 
 Entities can be displayed in two styles — a 3-row list (default) or the classic full-screen card view. See [Display](#display) for how to switch between them. Navigation works the same in both styles.
 
+***Note:*** *"Select" and "Back" below refer to physical buttons where your watch has them. On touchscreen watches without a dedicated Select or Back button, tap the middle of the screen for "Select" and swipe right for "Back".*
+
 - **Scrolling**: Depending on your watch model, you can scroll through the widget using the touchscreen or the up/down buttons. If your watch has a touchscreen, you can also use the swipe gesture to scroll.
 - **Selecting an entity**: To select an entity, simply scroll to it and press the "Select" button (usually the middle button on the right side of the watch).
 - **Toggling a switch or light**: To toggle a switch or light, select the entity and press the "Select" button again. The entity should now be toggled on or off.
 - **Triggering a scene or script**: To trigger a scene or script, select the entity and press the "Select" button. The scene or script should now be executed.
 - **Refreshing entities**: If you have made changes to your entities in Home Assistant and want to update the widget, you can select the "Refresh entities" option in the widget menu. This will reload all entities from Home Assistant.
+- **Choosing a `select`/`input_select` option**: Select the entity and press the "Select" button. This opens a menu listing the entity's options — pick one to send it to Home Assistant. On [low-memory devices](#low-memory-devices) these entities are read-only instead: they just display the current option and pressing "Select" does nothing.
+- **Setting an `input_number`/`number` value**: Select the entity and press the "Select" button. This opens a dedicated screen with the current value in the middle and "+"/"-" bands at the top and bottom; use up/down (or tap/swipe those bands) to adjust the value by the entity's configured step, respecting its min/max, then press "Select" (or tap the value) to confirm, or "Back" to cancel. On [low-memory devices](#low-memory-devices) these entities are read-only instead: they just display the current value and pressing "Select" does nothing.
 
 HassControl also supports the following controls:
 

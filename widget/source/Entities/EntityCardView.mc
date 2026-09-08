@@ -110,6 +110,26 @@ class EntityCardView extends Ui.View {
     }
   }
 
+  // TYPE_SELECT (select and input_select share this type)/TYPE_INPUT_NUMBER
+  // (input_number and number) entities exist on every tier (see
+  // Entity.detectExtendedType()), but their distinctive icon is
+  // fullmem-only. The (:lowmem) stub returns null so the linker drops the
+  // two mdi bitmaps below from that build - drawIcon()'s null-drawable
+  // fallback then draws Rez.Drawables.Unknown, the same generic icon a
+  // TYPE_SENSOR with SENSOR_OTHER gets.
+  (:fullmem)
+  hidden function fullmemOnlyIcon(type) {
+    if (type == Hass.TYPE_SELECT) {
+      return WatchUi.loadResource(Rez.Drawables.MdiFormatListBulleted);
+    }
+    return WatchUi.loadResource(Rez.Drawables.MdiNumeric);
+  }
+
+  (:lowmem)
+  hidden function fullmemOnlyIcon(type) {
+    return null;
+  }
+
   function drawIcon(dc, entity) {
     var vh = dc.getHeight();
     var vw = dc.getWidth();
@@ -212,6 +232,8 @@ class EntityCardView extends Ui.View {
       } else if (sensorClass == Hass.SENSOR_OTHER) {
         drawable = WatchUi.loadResource(Rez.Drawables.Unknown);
       }
+    } else if (type == Hass.TYPE_SELECT || type == Hass.TYPE_INPUT_NUMBER) {
+      drawable = fullmemOnlyIcon(type);
     }
     }
 
