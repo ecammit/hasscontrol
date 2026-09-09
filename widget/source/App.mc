@@ -143,7 +143,16 @@ class HassControlApp extends App.AppBase {
     Utils.logMem("init:5 scenes n", Hass.getEntities().size());
 
     if (isLoggedIn()) {
-      Hass.refreshAllEntities(true);
+      if (Hass.getEntities().size() == 0 && Hass.getGroup() != null) {
+        // Nothing stored (fresh install, or a storage format change dropped
+        // the cache): a state refresh walks an empty list and completes
+        // instantly without a single request, so import the group instead.
+        // importEntities() ends by starting the same refresh, so this also
+        // covers the state fill the call below would have done.
+        Hass.importEntities();
+      } else {
+        Hass.refreshAllEntities(true);
+      }
       Utils.logMem("init:6 refreshStarted", null);
     }
 

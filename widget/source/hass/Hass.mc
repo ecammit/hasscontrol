@@ -15,6 +15,12 @@ module Hass {
   // :lowmem's stride never changed (still 6), so it isn't actually at risk
   // here, but shares the bump anyway rather than tracking two key versions.
   const STORAGE_KEY = "Hass/entities/v3";
+
+  // The pre-2.2.0 flat-array key. 2.2.0 bumped to v3 without a reader for
+  // v2, so a 2.1.0 -> 2.2.0 update lost the whole entity list
+  // ("No entities configured", startup refresh walking an empty list).
+  // loadStoredEntities() migrates v2 once, then deletes the key.
+  const STORAGE_KEY_V2 = "Hass/entities/v2";
   const STORAGE_KEY_LEGACY = "Hass/entities";
 
   var client = null;
@@ -182,9 +188,7 @@ module Hass {
 
     var stored = App.Storage.getValue(STORAGE_KEY);
 
-    if (stored == null) {
-      _loadLegacyStoredEntities();
-    } else {
+    if (stored != null) {
       for (var i = 0; i + Entity.STORED_FIELDS <= stored.size(); i += Entity.STORED_FIELDS) {
         var entity = Entity.createFromStorage(stored, i);
         // Filter out null entities (from corrupted or invalid data)
@@ -192,11 +196,58 @@ module Hass {
           _entities.add(entity);
         }
       }
+
+      // A leftover v2 key means the device was already on 2.2.0+ and
+      // recovered (or the migration below ran but the store-skip left v2
+      // behind). Current storage is authoritative; drop the stale copy.
+      if (App.Storage.getValue(STORAGE_KEY_V2) != null) {
+        App.Storage.deleteValue(STORAGE_KEY_V2);
+      }
+    } else if (App.Storage.getValue(STORAGE_KEY_V2) != null) {
+      // One-time migration of the 2.1.0-era format (see _migrateV2Entities).
+      _migrateV2Entities();
+    } else {
+      _loadLegacyStoredEntities();
     }
 
     loadScenesFromSettings();
 
     Utils.debugLog("Loaded entities: ", _entities.size(), " total");
+  }
+
+  // Reads the 2.1.0-era flat array (Entity.STORED_FIELDS_V2 slots per
+  // entity) and rewrites it under the current key. 2.2.0 bumped the key
+  // without a migration, which made the 2.1.0 -> 2.2.0 update show
+  // "No entities configured" with a startup refresh that walks an empty
+  // list - the data was orphaned, not gone, so this recovers it.
+  function _migrateV2Entities() {
+    var stored = App.Storage.getValue(STORAGE_KEY_V2);
+
+    if (stored == null) {
+      return;
+    }
+
+    for (var i = 0; i + Entity.STORED_FIELDS_V2 <= stored.size(); i += Entity.STORED_FIELDS_V2) {
+      var entity = Entity.createFromV2Storage(stored, i);
+      if (entity != null) {
+        _entities.add(entity);
+      }
+    }
+
+    Utils.debugLog("Migrated v2 entities: ", _entities.size(), " total");
+
+    storeEntities();
+
+    // Drop the old key only once the new one is confirmed written. On a
+    // 64 KB device storeEntities() skips when free heap is below
+    // MIN_FREE_MEMORY - the normal state at startup there - and the
+    // in-memory list is what the rest of the app uses, so deleting v2 now
+    // would turn a recoverable skip into real data loss. Leaving it makes
+    // the next launch retry here instead: self-healing. A successful write
+    // leaves both keys present only until this delete, which is cheap.
+    if (App.Storage.getValue(STORAGE_KEY) != null) {
+      App.Storage.deleteValue(STORAGE_KEY_V2);
+    }
   }
 
   // One-time read of the pre-2.0.4 format (one Dictionary per entity). The

@@ -27,6 +27,15 @@ module Hass {
     (:lowmem)
     static const STORED_FIELDS = 6;
 
+    // Field count of the pre-2.2.0 flat storage format, kept for the one-time
+    // migration in Hass.loadStoredEntities(). 2.2.0's :fullmem stride grew
+    // from 6 to 10 to persist select's options and input_number/number's
+    // min/max/step. The v2 layout (id, name, state, sensorClass, icon,
+    // deviceClass) matches today's :lowmem STORED_FIELDS exactly, so the
+    // reader below is untagged and compiles on both tiers - the :lowmem
+    // createFromStorage is already the same code, just private to that tier.
+    static const STORED_FIELDS_V2 = 6;
+
     // Appends this entity at `offset` and returns the next free offset.
     (:fullmem)
     function writeToStorage(target, offset) {
@@ -82,6 +91,30 @@ module Hass {
 
     (:lowmem)
     static function createFromStorage(stored, offset) {
+      var id = stored[offset];
+
+      if (id == null) {
+        return null;
+      }
+
+      var name = stored[offset + 1];
+
+      return new Entity({
+        :id => id,
+        :name => name != null ? name : id,
+        :state => stored[offset + 2],
+        :sensorClass => stored[offset + 3],
+        :icon => stored[offset + 4],
+        :deviceClass => stored[offset + 5]
+      });
+    }
+
+    // Reads one entity from the pre-2.2.0 flat format (6 slots per entity,
+    // keyed under "Hass/entities/v2"). Only used by the one-time migration
+    // in Hass.loadStoredEntities(). The extended fields (options, min, max,
+    // step) don't exist in v2 and are left null here; the next entity refresh
+    // repopulates them from the live state via _applyExtendedAttributes().
+    static function createFromV2Storage(stored, offset) {
       var id = stored[offset];
 
       if (id == null) {
