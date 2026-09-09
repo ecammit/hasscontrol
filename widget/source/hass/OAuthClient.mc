@@ -86,7 +86,7 @@ module Hass {
         }
 
         function _setIsLoggingIn(isLoggingIn) {
-            System.println("is logging in: " + isLoggingIn);
+            Utils.debugLog("is logging in: ", isLoggingIn, null);
             _isLoggingIn = isLoggingIn;
             App.getApp().viewController.showLoginView(_isLoggingIn);
         }
@@ -105,11 +105,11 @@ module Hass {
                 _credentials.setAccessToken(data["access_token"]);
 
                 if (data["refresh_token"]) {
-                    System.println("Saving refresh token");
+                    Utils.debugLog("Saving refresh token", null, null);
                     _credentials.setRefreshToken(data["refresh_token"]);
                 }
 
-                System.println("Received tokens from home assistant");
+                Utils.debugLog("Received tokens from home assistant", null, null);
 
                 fireTokenCallbacks(null);
             } else {
@@ -119,8 +119,8 @@ module Hass {
                     logout();
                 }
 
-                System.println("Failed to complete token request, status " + code);
-                System.println(data);
+                Utils.debugLog("Failed to complete token request, status ", code, null);
+                Utils.debugLog(data, null, null);
 
                 fireTokenCallbacks(error);
             }
@@ -132,7 +132,7 @@ module Hass {
             }
 
             if (isLoggedIn() == false) {
-                System.println("Not logged in, let's log in!");
+                Utils.debugLog("Not logged in, let's log in!", null, null);
                 login(null);
                 return;
             }
@@ -142,7 +142,7 @@ module Hass {
             }
 
             if (_credentials.hasExpired() == true || force == true) {
-                System.println("AccessToken has expired, lets refresh!");
+                Utils.debugLog("AccessToken has expired, lets refresh!", null, null);
                 var refreshToken = _credentials.getRefreshToken();
 
                 _isFetchingAccessToken = true;
@@ -159,7 +159,7 @@ module Hass {
                     method(:onReceiveTokens)
                 );
             } else {
-                System.println("AccessToken still valid :)");
+                Utils.debugLog("AccessToken still valid :)", null, null);
                 fireTokenCallbacks(null);
             }
         }
@@ -168,8 +168,8 @@ module Hass {
             if (_isFetchingAccessToken != true) {
                 _isFetchingAccessToken = true;
 
-                System.println("Fetching token from code");
-                System.println(_tokenUrl);
+                Utils.debugLog("Fetching token from code", null, null);
+                Utils.debugLog(_tokenUrl, null, null);
 
                 Comm.makeWebRequest(
                     _tokenUrl,
@@ -188,7 +188,7 @@ module Hass {
 
         function onReceiveCode(value) {
             if (value.data["code"] != null) {
-                System.println("Received auth code from home assistant");
+                Utils.debugLog("Received auth code from home assistant", null, null);
                 getTokensFromCode(value.data["code"]);
             } else {
                 var error = new OAuthError(value.responseCode);
@@ -197,8 +197,8 @@ module Hass {
 
                 fireTokenCallbacks(error);
 
-                System.println("Failed to receive auth code!");
-                System.println(error.toString());
+                Utils.debugLog("Failed to receive auth code!", null, null);
+                Utils.debugLog(error, null, null);
             }
         }
 
@@ -208,7 +208,7 @@ module Hass {
             }
 
             if (isLoggedIn() == true) {
-                System.println("Trying to login when we are already logged in");
+                Utils.debugLog("Trying to login when we are already logged in", null, null);
                 refreshToken(false);
                 return;
             }
@@ -223,7 +223,7 @@ module Hass {
                 return;
             }
 
-            System.println("About to fire an oauth request!");
+            Utils.debugLog("About to fire an oauth request!", null, null);
             Comm.makeOAuthRequest(
             _authUrl,
                 {
@@ -307,11 +307,11 @@ module Hass {
             }
 
             if (options[:method] == Comm.HTTP_REQUEST_METHOD_GET) {
-                System.println("GET: " + context[:url] + ", " + context[:parameters]);
+                Utils.debugLogRequest("GET", context[:url], context[:parameters]);
             } else if (options[:method] == Comm.HTTP_REQUEST_METHOD_POST) {
-                System.println("POST: " + context[:url] + ", " + context[:parameters]);
+                Utils.debugLogRequest("POST", context[:url], context[:parameters]);
             } else {
-                System.println("REQUEST: " + context[:url] + ", " + context[:parameters]);
+                Utils.debugLogRequest("REQUEST", context[:url], context[:parameters]);
             }
 
             Comm.makeWebRequest(

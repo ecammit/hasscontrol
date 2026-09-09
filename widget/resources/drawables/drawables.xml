@@ -81,5 +81,7 @@
         <bitmap id="MdiDeskLamp" filename="mdi_desk_lamp.png" automaticPalette="false" />
         <bitmap id="MdiKettle" filename="mdi_kettle.png" automaticPalette="false" />
         <bitmap id="MdiWater" filename="mdi_water.png" automaticPalette="false" />
+        <bitmap id="MdiFormatListBulleted" filename="mdi_format_list_bulleted.png" automaticPalette="false" />
+        <bitmap id="MdiNumeric" filename="mdi_numeric.png" automaticPalette="false" />
     </drawables>
 </resources>

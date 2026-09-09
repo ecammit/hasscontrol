@@ -87,25 +87,6 @@ module Hass {
         }
 
 
-        function activateScene(sceneId, callback) {
-            if (validateSettings(callback) != null) {
-                return;
-            }
-
-            System.println("Send activate scene request");
-
-            makeAuthenticatedWebRequest(
-                _baseUrl + "/api/services/scene/turn_on",
-                {
-                    "entity_id" => sceneId
-                },
-                {
-                    :method => Comm.HTTP_REQUEST_METHOD_POST
-                },
-                callback
-            );
-        }
-
         function getEntity(entityId, context, callback) {
             if (validateSettings(callback) != null) {
                 return;
@@ -172,6 +153,37 @@ module Hass {
                     :context => {
                         :entityId => entityId,
                         :state => newState,
+                    }
+                },
+                callback
+            );
+        }
+
+        // Only used by select/input_select/input_number/number editing,
+        // :fullmem-only (see Entity.mc and Hass.selectOption()/
+        // setInputNumberValue()) - 64 KB widget devices show these entities
+        // read-only.
+        (:fullmem)
+        function callService(domain, service, entityId, extraParams, callback) {
+            if (validateSettings(callback) != null) {
+                return;
+            }
+
+            var body = { "entity_id" => entityId };
+            var keys = extraParams.keys();
+
+            for (var i = 0; i < keys.size(); i++) {
+                body[keys[i]] = extraParams[keys[i]];
+            }
+
+            makeAuthenticatedWebRequest(
+                _baseUrl + "/api/services/" + domain + "/" + service,
+                body,
+                {
+                    :method => Comm.HTTP_REQUEST_METHOD_POST,
+                    :context => {
+                        :entityId => entityId,
+                        :extraParams => extraParams
                     }
                 },
                 callback

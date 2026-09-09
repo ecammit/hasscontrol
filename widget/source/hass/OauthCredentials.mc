@@ -2,6 +2,7 @@ using Toybox.Communications as Comm;
 using Toybox.Application as App;
 using Toybox.StringUtil;
 using Toybox.Time;
+using Utils;
 
 (:glance)
 module Hass {
@@ -24,7 +25,7 @@ module Hass {
             // If the user has specified an access token in settings
             var accessToken = App.Properties.getValue("accessToken");
             if (accessToken != null && accessToken.length() > 0 ) {
-                System.println("Initializing with long-lived access token");
+                Utils.debugLog("Initializing with long-lived access token", null, null);
                 _fixedAccessToken = true;
                 _accessToken = accessToken;
             } else {
@@ -53,7 +54,7 @@ module Hass {
 
         function setAccessToken(token) {
             if (_fixedAccessToken == true) {
-                System.println("Not allowed to overwrite long lived access token");
+                Utils.debugLog("Not allowed to overwrite long lived access token", null, null);
                 return;
             }
 
@@ -73,7 +74,7 @@ module Hass {
 
         function setRefreshToken(token) {
             if (_fixedAccessToken == true) {
-                System.println("Not allowed to set refresh token, while having long lived access token");
+                Utils.debugLog("Not allowed to set refresh token, while having long lived access token", null, null);
                 return;
             }
 
@@ -98,7 +99,7 @@ module Hass {
 
         function setExpires(expiresIn) {
             if (_fixedAccessToken == true) {
-                System.println("Not allowed to set expires, while having long lived access token");
+                Utils.debugLog("Not allowed to set expires, while having long lived access token", null, null);
                 return;
             }
 
@@ -112,7 +113,7 @@ module Hass {
         }
 
         function clear() {
-            System.println("Clearing credentials!");
+            Utils.debugLog("Clearing credentials!", null, null);
             setAccessToken(null);
             setRefreshToken(null);
             setExpires(null);

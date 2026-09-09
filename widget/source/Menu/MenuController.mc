@@ -25,8 +25,30 @@ class MenuController {
 
     hidden var _delegate;
 
+    (:fullmem)
+    hidden var _selectMenuEntityId;
+
     function initialize() {
             _delegate = new MenuDelegate();
+            resetSelectMenuEntityId();
+    }
+
+    // The Menu2 option picker is fullmem-only - select/input_select is
+    // shown read-only on 64 KB widget devices instead (see Entity.mc), so
+    // _selectMenuEntityId only exists on :fullmem, and initializing/
+    // reading it is split out too.
+    (:fullmem)
+    hidden function resetSelectMenuEntityId() {
+        _selectMenuEntityId = null;
+    }
+
+    (:lowmem)
+    hidden function resetSelectMenuEntityId() {
+    }
+
+    (:fullmem)
+    function getSelectMenuEntityId() {
+        return _selectMenuEntityId;
     }
 
     function showRootMenu() {
@@ -167,6 +189,43 @@ class MenuController {
             MenuController.MENU_BACK,
             {}
         ));
+
+        Ui.pushView(menu, _delegate, Ui.SLIDE_IMMEDIATE);
+    }
+
+    (:fullmem)
+    function showSelectOptionMenu(entity) {
+        var menu = new Ui.Menu2({
+            :title => entity.getRawName()
+        });
+
+        var options = entity.getOptions();
+        var currentValue = entity.getState() == Hass.STATE_SENSOR ? entity.getSensorValue() : null;
+
+        _selectMenuEntityId = entity.getId();
+
+        if (options != null) {
+            for (var i = 0; i < options.size(); i++) {
+                // A checkmark glyph in the label itself, rather than a
+                // "selected" subLabel, needs no localization and leaves
+                // room for a longer option label on screen.
+                var isSelected = currentValue != null && options[i].equals(currentValue);
+                var label = isSelected ? "» " + options[i] : options[i];
+
+                menu.addItem(new Ui.MenuItem(
+                    label,
+                    null,
+                    options[i],
+                    {}
+                ));
+
+                // Land on the entity's current option instead of always
+                // defaulting to the top of the list.
+                if (isSelected) {
+                    menu.setFocus(i);
+                }
+            }
+        }
 
         Ui.pushView(menu, _delegate, Ui.SLIDE_IMMEDIATE);
     }
